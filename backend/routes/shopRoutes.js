@@ -11,6 +11,7 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 router.use(protect);
 
 router.post('/purchases', authorize('Shop'), purchaseFromManager);
+router.post('/purchase', authorize('Shop'), purchaseFromManager);
 router.get('/inventory', authorize('Shop'), getShopInventory);
 router.get('/purchases', authorize('Shop'), getShopPurchases);
 router.get('/manager-purchasers', authorize('Manager'), getShopsSuppliedByManager);

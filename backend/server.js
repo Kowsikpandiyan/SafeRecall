@@ -26,6 +26,8 @@ app.use('/api/traceability', require('./routes/traceabilityRoutes'));
 app.use('/api/recalls', require('./routes/recallRoutes'));
 app.use('/api/returns', require('./routes/returnRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/reviews', require('./routes/reviewRoutes'));
+app.use('/api/complaints', require('./routes/complaintRoutes'));
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {

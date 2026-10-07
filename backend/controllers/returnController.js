@@ -3,6 +3,7 @@ const ReturnRequest = require('../models/ReturnRequest');
 const ShopInventory = require('../models/ShopInventory');
 const Recall = require('../models/Recall');
 const Notification = require('../models/Notification');
+const { sendReturnRequestEmail } = require('../services/emailService');
 
 // @desc    Customer submits a return request for a recalled order to original Shop
 // @route   POST /api/returns/customer
@@ -18,8 +19,8 @@ const customerRequestReturn = async (req, res) => {
       });
     }
 
-    // 1. Fetch original Order
-    const order = await Order.findById(orderId);
+    // 1. Fetch original Order with associated Shop details
+    const order = await Order.findById(orderId).populate('shopId', 'name email');
 
     if (!order) {
       return res.status(404).json({
@@ -54,7 +55,7 @@ const customerRequestReturn = async (req, res) => {
       recallId: recall ? recall._id : order._id,
       orderId: order._id,
       customerId: req.user.id,
-      shopId: order.shopId, // Strictly linked to Original Purchase Shop!
+      shopId: order.shopId?._id || order.shopId, // Strictly linked to Original Purchase Shop!
       managerId: order.managerId,
       productId: order.productId,
       productName: order.productName,
@@ -66,13 +67,28 @@ const customerRequestReturn = async (req, res) => {
 
     // 4. Send notification to the Original Purchase Shop
     await Notification.create({
-      userId: order.shopId,
+      userId: order.shopId?._id || order.shopId,
       role: 'Shop',
       title: 'New Customer Return Request',
       message: `Customer '${req.user.name}' requested return of ${order.quantity} units for Order #${order.orderId} (Batch: ${order.batchNo}).`,
       type: 'RETURN',
       relatedId: returnReq._id.toString()
     });
+
+    // 5. Send product return/recall confirmation email to customer (non-blocking)
+    try {
+      sendReturnRequestEmail({
+        to: req.user.email,
+        customerName: req.user.name,
+        shopName: order.shopId?.name,
+        shopEmail: order.shopId?.email,
+        productName: order.productName,
+        orderId: order.orderId,
+        returnReason: reason || 'Product recall return request'
+      }).catch((emailErr) => console.error('[Return Email Error]:', emailErr.message));
+    } catch (emailErr) {
+      console.error('[Return Email Error]:', emailErr.message);
+    }
 
     return res.status(201).json({
       success: true,

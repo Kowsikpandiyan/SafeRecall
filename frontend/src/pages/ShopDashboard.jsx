@@ -7,6 +7,7 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import EmptyState from '../components/ui/EmptyState';
+import OrderTracker from '../components/ui/OrderTracker';
 import { TableSkeleton } from '../components/ui/Skeleton';
 import {
   Store,
@@ -22,12 +23,15 @@ import {
   RotateCcw,
   Briefcase,
   Check,
-  X
+  X,
+  Star,
+  Truck,
+  MessageSquare
 } from 'lucide-react';
 
 const ShopDashboard = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('suppliers'); // 'suppliers' | 'inventory' | 'orders' | 'recalls'
+  const [activeTab, setActiveTab] = useState('suppliers'); // 'suppliers' | 'inventory' | 'orders' | 'recalls' | 'reviews'
 
   // Data states
   const [managers, setManagers] = useState([]);
@@ -37,6 +41,7 @@ const ShopDashboard = () => {
   const [shopOrders, setShopOrders] = useState([]);
   const [recalls, setRecalls] = useState([]);
   const [returnRequests, setReturnRequests] = useState([]);
+  const [shopReviews, setShopReviews] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,17 +50,19 @@ const ShopDashboard = () => {
   // Purchase state
   const [buyQtyMap, setBuyQtyMap] = useState({});
   const [buyingId, setBuyingId] = useState(null);
+  const [updatingOrderId, setUpdatingOrderId] = useState(null);
 
   const fetchInitialData = async () => {
     try {
       setLoading(true);
       setError('');
-      const [mgrRes, invRes, ordRes, recallRes, returnRes] = await Promise.all([
+      const [mgrRes, invRes, ordRes, recallRes, returnRes, revRes] = await Promise.all([
         API.get('/products/managers'),
         API.get('/shop/inventory'),
         API.get('/orders/shop-orders'),
         API.get('/recalls'),
-        API.get('/returns')
+        API.get('/returns'),
+        API.get('/reviews/shop')
       ]);
 
       if (mgrRes.data.success) {
@@ -68,6 +75,7 @@ const ShopDashboard = () => {
       if (ordRes.data.success) setShopOrders(ordRes.data.orders);
       if (recallRes.data.success) setRecalls(recallRes.data.recalls);
       if (returnRes.data.success) setReturnRequests(returnRes.data.returnRequests);
+      if (revRes.data.success) setShopReviews(revRes.data.reviews);
     } catch (err) {
       console.error('Fetch shop dashboard data error:', err);
       setError('Failed to load shop operations data');
@@ -100,130 +108,140 @@ const ShopDashboard = () => {
 
   // Shop purchases stock from Manager
   const handleBuyFromManager = async (productId) => {
-    setError('');
-    setSuccessMsg('');
-
     const qty = Number(buyQtyMap[productId] || 10);
-    if (qty <= 0) {
-      setError('Please enter a valid positive quantity');
-      return;
-    }
+    if (!selectedManagerId || !productId || qty <= 0) return;
 
     try {
       setBuyingId(productId);
+      setError('');
+      setSuccessMsg('');
+
       const res = await API.post('/shop/purchases', {
+        managerId: selectedManagerId,
         productId,
         quantity: qty
       });
 
       if (res.data.success) {
-        setSuccessMsg(res.data.message);
+        setSuccessMsg(`Successfully purchased ${qty} units from Manager! Stock added to Shop Inventory.`);
         fetchInitialData();
-        if (selectedManagerId) fetchManagerProducts(selectedManagerId);
+        fetchManagerProducts(selectedManagerId);
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Stock purchase failed');
+      setError(err.response?.data?.message || 'Failed to purchase stock from Manager');
     } finally {
       setBuyingId(null);
     }
   };
 
-  // Shop responds to Customer return request (Accept / Reject)
+  // Shop updates Customer Order status (ORDER PLACED -> PROCESSING -> SHIPPED -> DELIVERED)
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    try {
+      setUpdatingOrderId(orderId);
+      setError('');
+      setSuccessMsg('');
+
+      const res = await API.patch(`/orders/${orderId}/status`, { status: newStatus });
+
+      if (res.data.success) {
+        setSuccessMsg(`Order status updated to '${newStatus}'! Customer notified.`);
+        fetchInitialData();
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update order status');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  // Shop accepts/rejects Customer Return
   const handleRespondCustomerReturn = async (returnId, status) => {
     try {
       setError('');
       setSuccessMsg('');
+
       const res = await API.patch(`/returns/shop/${returnId}`, { status });
       if (res.data.success) {
-        setSuccessMsg(`Return request status updated to '${status}'!`);
+        setSuccessMsg(`Customer Return Request updated: ${status}`);
         fetchInitialData();
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update return request');
+      setError(err.response?.data?.message || 'Failed to respond to return request');
     }
   };
 
-  // Shop returns collected recalled products to Manager
-  const handleReturnToManager = async (returnRequestId) => {
+  // Shop dispatches accepted returned stock to Manager
+  const handleReturnToManager = async (returnId) => {
     try {
       setError('');
       setSuccessMsg('');
-      const res = await API.post('/returns/shop-to-manager', { returnRequestId });
+
+      const res = await API.post(`/returns/shop-to-manager/${returnId}`);
       if (res.data.success) {
-        setSuccessMsg('Recalled products dispatched back to manufacturer!');
+        setSuccessMsg('Recalled stock returned back to original Manufacturer Manager!');
         fetchInitialData();
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to return recalled products to manager');
+      setError(err.response?.data?.message || 'Failed to return stock to manager');
     }
   };
 
-  const totalShopUnits = shopInventory.reduce((sum, item) => sum + item.availableQuantity, 0);
-
   return (
-    <AppLayout activeTab={activeTab} setActiveTab={setActiveTab}>
-      <div className="animate-fade-in" style={{ maxWidth: '1300px', margin: '0 auto' }}>
+    <AppLayout>
+      <div className="animate-fade-in" style={{ maxWidth: '1280px', margin: '0 auto' }}>
         
-        {/* Header Hero Banner */}
+        {/* Header Hero */}
         <div className="card-surface" style={{
           padding: '2rem',
           marginBottom: '2rem',
-          borderLeft: '4px solid var(--primary-blue)',
-          background: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)',
-          border: '1px solid #DBEAFE'
+          borderLeft: '4px solid var(--success-color)',
+          background: 'linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)',
+          border: '1px solid #A7F3D0'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
-                <Badge variant="shop" icon={Store}>RETAIL SHOP DISTRIBUTOR HUB</Badge>
+                <Badge variant="shop" icon={Store}>RETAIL DISTRIBUTOR SHOP</Badge>
               </div>
-              <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#1E3A8A', letterSpacing: '-0.02em' }}>
-                Shop Operations & Supply Distribution
+              <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#065F46', letterSpacing: '-0.02em' }}>
+                {user?.name || 'Shop Portal'} Operations Dashboard
               </h1>
-              <p style={{ color: 'var(--text-sub)', marginTop: '0.25rem', fontSize: '0.9rem' }}>
-                Welcome, <strong>{user?.name}</strong>. Acquire manufacturer stock, manage local shop inventory, process customer orders, and handle recall returns.
+              <p style={{ color: 'var(--text-sub)', fontSize: '0.95rem' }}>
+                Manage inventory stock, update order tracking statuses, process recall alerts, and inspect customer feedback.
               </p>
             </div>
-
-            <button onClick={fetchInitialData} className="btn btn-outline">
-              <RefreshCw size={15} />
-              <span>Refresh Operations</span>
-            </button>
           </div>
         </div>
 
-        {/* Analytics Stat Cards */}
+        {/* Stats Summary */}
         <div className="dashboard-grid">
           <StatCard
-            title="AVAILABLE SHOP INVENTORY"
-            value={`${totalShopUnits} Units`}
-            subtext={`${shopInventory.length} unique product batches`}
+            title="SHOP INVENTORY ITEMS"
+            value={shopInventory.length}
+            subtext={`${shopInventory.reduce((s, i) => s + i.availableQuantity, 0)} total sellable units`}
             icon={Layers}
             color="success"
           />
-
           <StatCard
-            title="CUSTOMER ORDERS RECEIVED"
-            value={`${shopOrders.length} Orders`}
-            subtext="Fulfilled via retail marketplace"
+            title="CUSTOMER ORDERS"
+            value={shopOrders.length}
+            subtext="Orders processed for customers"
             icon={ShoppingCart}
             color="info"
           />
-
           <StatCard
-            title="ACTIVE RECALL ALERTS"
-            value={`${recalls.length} Alerts`}
-            subtext="Batches in your inventory"
+            title="RECALL ALERTS"
+            value={recalls.length}
+            subtext="Manufacturing recalls active"
             icon={AlertTriangle}
             color={recalls.length > 0 ? 'danger' : 'success'}
           />
-
           <StatCard
-            title="PENDING RETURN REQUESTS"
-            value={`${returnRequests.filter((r) => r.status === 'PENDING').length} Pending`}
-            subtext="Awaiting shop verification"
-            icon={RotateCcw}
-            color="warning"
+            title="CUSTOMER REVIEWS"
+            value={shopReviews.length}
+            subtext="Reviews for sold products"
+            icon={Star}
+            color="purple"
           />
         </div>
 
@@ -242,10 +260,48 @@ const ShopDashboard = () => {
           </div>
         )}
 
-        {/* Tab 1: Purchase from Managers */}
+        {/* Tab Selector */}
+        <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setActiveTab('suppliers')}
+            className={`btn btn-sm ${activeTab === 'suppliers' ? 'btn-primary' : 'btn-ghost'}`}
+          >
+            Buy Manufacturer Stock ({managers.length} Suppliers)
+          </button>
+
+          <button
+            onClick={() => setActiveTab('inventory')}
+            className={`btn btn-sm ${activeTab === 'inventory' ? 'btn-success' : 'btn-ghost'}`}
+          >
+            My Shop Inventory ({shopInventory.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={`btn btn-sm ${activeTab === 'orders' ? 'btn-secondary' : 'btn-ghost'}`}
+          >
+            Customer Orders & Tracking ({shopOrders.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('recalls')}
+            className={`btn btn-sm ${activeTab === 'recalls' ? 'btn-danger' : 'btn-ghost'}`}
+          >
+            Recall Alerts & Returns ({recalls.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('reviews')}
+            className={`btn btn-sm ${activeTab === 'reviews' ? 'btn-outline' : 'btn-ghost'}`}
+          >
+            Product Reviews ({shopReviews.length})
+          </button>
+        </div>
+
+        {/* Tab 1: Buy Stock from Manufacturers */}
         {activeTab === 'suppliers' && (
           <div className="card-surface" style={{ padding: '1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
               <div>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)' }}>
                   Acquire Stock from Manufacturer Suppliers
@@ -408,54 +464,72 @@ const ShopDashboard = () => {
           </div>
         )}
 
-        {/* Tab 3: Customer Orders */}
+        {/* Tab 3: Customer Orders & Tracking Management */}
         {activeTab === 'orders' && (
-          <div className="card-surface" style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '1.25rem' }}>
-              Customer Orders Received by Shop
-            </h3>
-
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {shopOrders.length === 0 ? (
-              <EmptyState
-                icon={ShoppingCart}
-                title="No Customer Orders Yet"
-                description="Orders placed by customers in the retail marketplace will be tracked here."
-              />
-            ) : (
-              <div className="table-wrapper">
-                <table className="enterprise-table">
-                  <thead>
-                    <tr>
-                      <th>Order ID</th>
-                      <th>Customer Name</th>
-                      <th>Product</th>
-                      <th>Batch Number</th>
-                      <th>Quantity</th>
-                      <th>Total Cost</th>
-                      <th>Order Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shopOrders.map((ord) => (
-                      <tr key={ord._id}>
-                        <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary-blue)', fontWeight: 700 }}>
-                          #{ord.orderId}
-                        </td>
-                        <td style={{ fontWeight: 700, color: 'var(--text-main)' }}>{ord.customerId?.name}</td>
-                        <td style={{ color: 'var(--text-main)' }}>{ord.productName}</td>
-                        <td style={{ fontFamily: 'var(--font-mono)', color: '#0369A1' }}>{ord.batchNo}</td>
-                        <td style={{ color: 'var(--success-color)', fontWeight: 700 }}>{ord.quantity} units</td>
-                        <td style={{ color: 'var(--text-main)', fontWeight: 700 }}>${ord.totalAmount}</td>
-                        <td>
-                          <Badge variant={ord.status === 'RECALLED' ? 'danger' : 'success'}>
-                            {ord.status}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="card-surface" style={{ padding: '2rem' }}>
+                <EmptyState
+                  icon={ShoppingCart}
+                  title="No Customer Orders Yet"
+                  description="Orders placed by customers in the retail marketplace will be tracked here."
+                />
               </div>
+            ) : (
+              shopOrders.map((ord) => (
+                <div key={ord._id} className="card-surface" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+                  {/* Header info */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+                    <div>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Order ID: </span>
+                      <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary-blue)', fontSize: '1.05rem' }}>#{ord.orderId}</strong>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: '1rem' }}>
+                        Customer: <strong style={{ color: 'var(--text-main)' }}>{ord.customerId?.name}</strong> ({ord.customerId?.email})
+                      </span>
+                    </div>
+
+                    {/* Order Status Update Control */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <span style={{ fontSize: '0.825rem', fontWeight: 600, color: 'var(--text-sub)' }}>Update Status:</span>
+                      <select
+                        className="form-select"
+                        value={ord.status || 'ORDER PLACED'}
+                        onChange={(e) => handleUpdateOrderStatus(ord._id, e.target.value)}
+                        disabled={updatingOrderId === ord._id || ord.status === 'RECALLED' || ord.status === 'RETURNED'}
+                        style={{ padding: '0.35rem 0.6rem', fontSize: '0.85rem', fontWeight: 700, color: '#1E40AF', backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', width: 'auto' }}
+                      >
+                        <option value="ORDER PLACED">ORDER PLACED</option>
+                        <option value="PROCESSING">PROCESSING</option>
+                        <option value="SHIPPED">SHIPPED</option>
+                        <option value="DELIVERED">DELIVERED</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Order Line Details */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PRODUCT & BATCH</div>
+                      <div style={{ fontWeight: 800, color: 'var(--text-main)' }}>{ord.productName}</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', color: '#0369A1', fontSize: '0.8rem' }}>Batch: {ord.batchNo}</div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>QUANTITY & AMOUNT</div>
+                      <div style={{ color: 'var(--success-color)', fontWeight: 700 }}>{ord.quantity} units</div>
+                      <div style={{ fontWeight: 800, color: 'var(--text-main)' }}>${ord.totalAmount} (${ord.price}/unit)</div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ORDER DATE</div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{new Date(ord.orderDate || ord.createdAt).toLocaleString()}</div>
+                    </div>
+                  </div>
+
+                  {/* Visual Stepper */}
+                  <OrderTracker status={ord.status} orderDate={ord.orderDate} />
+                </div>
+              ))
             )}
           </div>
         )}
@@ -575,6 +649,60 @@ const ShopDashboard = () => {
               )}
             </div>
 
+          </div>
+        )}
+
+        {/* Tab 5: Product Reviews */}
+        {activeTab === 'reviews' && (
+          <div className="card-surface" style={{ padding: '1.5rem' }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Star size={20} fill="#F59E0B" color="#F59E0B" /> Customer Reviews & Ratings for Sold Products
+            </h3>
+
+            {shopReviews.length === 0 ? (
+              <EmptyState
+                icon={MessageSquare}
+                title="No Product Reviews Yet"
+                description="Customer reviews for products sold by your shop will be listed here once submitted."
+              />
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
+                {shopReviews.map((rev) => (
+                  <div key={rev._id} style={{
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '14px',
+                    padding: '1.25rem',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                      <span style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '1.05rem' }}>
+                        {rev.productId?.name || 'Product'}
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.2rem' }}>
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            size={16}
+                            fill={s <= rev.rating ? '#F59E0B' : 'none'}
+                            color={s <= rev.rating ? '#F59E0B' : '#CBD5E1'}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <p style={{ color: 'var(--text-sub)', fontSize: '0.9rem', marginBottom: '0.85rem', fontStyle: 'italic' }}>
+                      "{rev.reviewText}"
+                    </p>
+
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Customer: {rev.customerId?.name || 'Customer'}</span>
+                      <span>Batch: {rev.batchNo}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

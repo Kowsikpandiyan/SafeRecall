@@ -1,35 +1,46 @@
+const User = require('../models/User');
 const Product = require('../models/Product');
 const ShopPurchase = require('../models/ShopPurchase');
 const Order = require('../models/Order');
 const Recall = require('../models/Recall');
 const Notification = require('../models/Notification');
+const { sendProductRecallEmail } = require('../services/emailService');
 
 // @desc    Manager creates a Product Recall by Batch Number
 // @route   POST /api/recalls
 // @access  Private (Manager)
 const createRecall = async (req, res) => {
   try {
-    const { batchNo, reason, message } = req.body;
+    let { batchNo, productId, reason, message, returnInstructions, supportContact } = req.body;
 
-    if (!batchNo || !reason || !message) {
+    if ((!batchNo && !productId) || !reason || !message) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide batchNo, reason, and message for the product recall'
+        message: 'Please provide batchNo or productId, recall reason, and instructions message'
       });
     }
 
-    const formattedBatch = batchNo.trim().toUpperCase();
+    let formattedBatch = batchNo ? batchNo.trim().toUpperCase() : '';
+    let product;
 
-    // 1. Find Product
-    const product = await Product.findOne({
-      managerId: req.user.id,
-      batchNo: formattedBatch
-    });
+    // 1. Find Product by batchNo or productId under this manager/admin
+    if (formattedBatch) {
+      product = await Product.findOne({
+        managerId: req.user.id,
+        batchNo: formattedBatch
+      });
+    } else if (productId) {
+      product = await Product.findOne({
+        _id: productId,
+        managerId: req.user.id
+      });
+      if (product) formattedBatch = product.batchNo;
+    }
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: `Product batch '${formattedBatch}' not found under your manager account`
+        message: `Product ${formattedBatch ? `batch '${formattedBatch}'` : ''} not found under your manager account`
       });
     }
 
@@ -46,9 +57,11 @@ const createRecall = async (req, res) => {
       status: 'ACTIVE'
     });
 
-    // 2. AUTOMATIC TRACEABILITY: Find all affected Shops & Customers from transaction records
+    // 2. AUTOMATIC TRACEABILITY: Find all affected Shops & Customer Orders matching the exact recalled Product ID
     const affectedShopPurchases = await ShopPurchase.find({ batchNo: formattedBatch }).distinct('shopId');
-    const affectedCustomerOrders = await Order.find({ batchNo: formattedBatch });
+    const affectedCustomerOrders = await Order.find({ productId: product._id })
+      .populate('customerId', 'name email phone role')
+      .populate('shopId', 'name email');
 
     // 3. Dispatch Notifications to Affected Shops
     const shopNotificationPromises = affectedShopPurchases.map((shopId) => {
@@ -62,10 +75,10 @@ const createRecall = async (req, res) => {
       });
     });
 
-    // 4. Dispatch Notifications to Affected Customers (including original purchase shop reference!)
+    // 4. Dispatch Internal Notifications to Affected Customers
     const customerNotificationPromises = affectedCustomerOrders.map((order) => {
       return Notification.create({
-        userId: order.customerId,
+        userId: order.customerId?._id || order.customerId,
         role: 'Customer',
         title: '⚠️ RECALL NOTICE FOR YOUR PURCHASED PRODUCT',
         message: `Recall issued for '${product.name}' (Batch: ${formattedBatch}). Reason: ${reason}. Please request a return to your original purchase shop.`,
@@ -76,6 +89,65 @@ const createRecall = async (req, res) => {
 
     await Promise.all([...shopNotificationPromises, ...customerNotificationPromises]);
 
+    // 5. Send Product Recall Email DIRECTLY to Customer's Registered Email Address
+    // Extract customer details from orders and deduplicate by customer registered email
+    const uniqueCustomerMap = new Map();
+
+    for (const order of affectedCustomerOrders) {
+      let customer = order.customerId;
+
+      // If customer was not populated as an object, fetch directly from User collection
+      if (customer && (!customer.email || typeof customer === 'string')) {
+        const customerIdVal = customer._id || customer;
+        try {
+          customer = await User.findById(customerIdVal).select('name email phone role');
+        } catch (findErr) {
+          console.error(`[User lookup error for ID ${customerIdVal}]:`, findErr.message);
+        }
+      }
+
+      if (!customer || !customer.email) {
+        continue;
+      }
+
+      const customerEmail = customer.email.trim().toLowerCase();
+
+      // Ensure each affected customer receives only ONE recall email
+      if (!uniqueCustomerMap.has(customerEmail)) {
+        const senderShopName = order.shopId?.name || req.user.name || 'Shop / Manufacturer';
+        const senderShopEmail = order.shopId?.email || req.user.email || '';
+
+        uniqueCustomerMap.set(customerEmail, {
+          email: customer.email.trim(),
+          name: customer.name || 'Customer',
+          orderId: order.orderId,
+          shopName: senderShopName,
+          shopEmail: senderShopEmail
+        });
+      }
+    }
+
+    // Dispatch email to each affected customer's registered email with per-customer error isolation
+    const emailPromises = Array.from(uniqueCustomerMap.values()).map(async (custData) => {
+      try {
+        console.log(`[Recall Dispatch]: Sending recall alert to customer registered email: ${custData.email} for order #${custData.orderId}`);
+        await sendProductRecallEmail({
+          to: custData.email,
+          customerName: custData.name,
+          productName: product.name,
+          orderId: custData.orderId,
+          shopName: custData.shopName,
+          shopEmail: custData.shopEmail,
+          recallReason: reason
+        });
+      } catch (emailErr) {
+        console.error(`[Recall Email Error for Customer ${custData.email}]:`, emailErr.message);
+      }
+    });
+
+    // Run email deliveries with error isolation; failures will not crash or block response
+    await Promise.allSettled(emailPromises);
+
     return res.status(201).json({
       success: true,
       message: `Product Recall #${recallId} initiated successfully for Batch '${formattedBatch}'!`,
@@ -83,6 +155,7 @@ const createRecall = async (req, res) => {
       affectedMetrics: {
         affectedShopsCount: affectedShopPurchases.length,
         affectedCustomerOrdersCount: affectedCustomerOrders.length,
+        uniqueAffectedCustomersCount: uniqueCustomerMap.size,
         totalNotificationsDispatched: affectedShopPurchases.length + affectedCustomerOrders.length
       }
     });

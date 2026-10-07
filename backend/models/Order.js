@@ -60,8 +60,8 @@ const orderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['COMPLETED', 'RECALLED', 'RETURNED'],
-      default: 'COMPLETED'
+      enum: ['ORDER PLACED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'COMPLETED', 'RECALLED', 'RETURNED'],
+      default: 'ORDER PLACED'
     }
   },
   {

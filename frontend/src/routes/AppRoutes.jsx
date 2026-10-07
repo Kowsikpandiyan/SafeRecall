@@ -39,6 +39,9 @@ const AppRoutes = () => {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/login" element={<LoginPage />} />
 
+      {/* Public / General Traceability Route for QR Code Scans */}
+      <Route path="/traceability" element={<ManagerTraceability />} />
+
       {/* Manager Routes */}
       <Route
         path="/manager"

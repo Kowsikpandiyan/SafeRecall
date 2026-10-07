@@ -5,8 +5,9 @@ import TraceabilityTree from '../components/ui/TraceabilityTree';
 import StatCard from '../components/ui/StatCard';
 import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
+import BatchQRCodeModal from '../components/ui/BatchQRCodeModal';
 import { TableSkeleton } from '../components/ui/Skeleton';
-import { Search, Shield, Package, Store, Users, AlertTriangle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Search, Shield, Package, Store, Users, AlertTriangle, AlertCircle, RefreshCw, QrCode, Star, MessageSquare } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 
 const ManagerTraceability = () => {
@@ -17,6 +18,7 @@ const ManagerTraceability = () => {
   const [traceability, setTraceability] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showQrModal, setShowQrModal] = useState(false);
 
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
@@ -101,41 +103,95 @@ const ManagerTraceability = () => {
           </div>
         )}
 
+        {/* Active Recall Alert Banner (If batch is recalled) */}
+        {traceability && traceability.recalls && traceability.recalls.length > 0 && (
+          <div className="animate-fade-in" style={{
+            backgroundColor: '#FEF2F2',
+            border: '2px solid #EF4444',
+            borderRadius: '16px',
+            padding: '1.5rem',
+            marginBottom: '1.5rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <Badge variant="danger" icon={AlertTriangle}>⚠️ URGENT: BATCH RECALL ACTIVE</Badge>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#991B1B' }}>BATCH: {traceability.batchNo}</span>
+            </div>
+
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#991B1B', marginBottom: '0.3rem' }}>
+              Defect Reason: {traceability.recalls[0].reason}
+            </h3>
+            <p style={{ color: '#7F1D1D', fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+              {traceability.recalls[0].message}
+            </p>
+
+            <div style={{ fontSize: '0.8rem', color: '#991B1B', backgroundColor: '#FFFFFF', padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #FCA5A5' }}>
+              Recall status: <strong>{traceability.recalls[0].status}</strong> | Broadcast Date: {new Date(traceability.recalls[0].createdAt).toLocaleString()}
+            </div>
+          </div>
+        )}
+
         {/* Traceability Summary Metrics */}
         {traceability && (
-          <div className="dashboard-grid">
-            <StatCard
-              title="MANUFACTURED BATCH STOCK"
-              value={`${traceability.summary.totalManufactured} Units`}
-              subtext={`Unit price: $${traceability.product.price}`}
-              icon={Package}
-              color="purple"
-            />
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                  Product: {traceability.product.name}
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: '#0369A1', backgroundColor: '#E0F2FE', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: 700, fontSize: '0.85rem' }}>
+                  {traceability.batchNo}
+                </span>
+                {/* Rating Badge */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#FEF3C7', color: '#D97706', padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700 }}>
+                  <Star size={14} fill="#D97706" color="#D97706" />
+                  <span>{traceability.product.averageRating > 0 ? `${traceability.product.averageRating} / 5` : 'No reviews'}</span>
+                  {traceability.product.numReviews > 0 && <span style={{ color: '#92400E' }}>({traceability.product.numReviews} reviews)</span>}
+                </div>
+              </div>
 
-            <StatCard
-              title="DISTRIBUTED TO SHOPS"
-              value={`${traceability.summary.totalDistributedToShops} Units`}
-              subtext={`Across ${traceability.summary.uniqueShopsCount} unique shops`}
-              icon={Store}
-              color="success"
-            />
+              <button
+                onClick={() => setShowQrModal(true)}
+                className="btn btn-primary btn-sm"
+              >
+                <QrCode size={15} />
+                <span>View & Download Batch QR Code</span>
+              </button>
+            </div>
 
-            <StatCard
-              title="CUSTOMER PURCHASE ORDERS"
-              value={`${traceability.summary.totalPurchasedByCustomers} Units`}
-              subtext={`${traceability.summary.uniqueCustomersCount} total customer orders`}
-              icon={Users}
-              color="info"
-            />
+            <div className="dashboard-grid">
+              <StatCard
+                title="MANUFACTURED BATCH STOCK"
+                value={`${traceability.summary.totalManufactured} Units`}
+                subtext={`Unit price: $${traceability.product.price}`}
+                icon={Package}
+                color="purple"
+              />
 
-            <StatCard
-              title="RECALL STATUS"
-              value={traceability.summary.activeRecallsCount > 0 ? 'ACTIVE RECALL' : 'NO RECALL'}
-              subtext={`${traceability.summary.totalReturnsSubmitted} return requests logged`}
-              icon={AlertTriangle}
-              color={traceability.summary.activeRecallsCount > 0 ? 'danger' : 'success'}
-            />
-          </div>
+              <StatCard
+                title="DISTRIBUTED TO SHOPS"
+                value={`${traceability.summary.totalDistributedToShops} Units`}
+                subtext={`Across ${traceability.summary.uniqueShopsCount} unique shops`}
+                icon={Store}
+                color="success"
+              />
+
+              <StatCard
+                title="CUSTOMER PURCHASE ORDERS"
+                value={`${traceability.summary.totalPurchasedByCustomers} Units`}
+                subtext={`${traceability.summary.uniqueCustomersCount} total customer orders`}
+                icon={Users}
+                color="info"
+              />
+
+              <StatCard
+                title="RECALL STATUS"
+                value={traceability.summary.activeRecallsCount > 0 ? 'ACTIVE RECALL' : 'NO RECALL'}
+                subtext={`${traceability.summary.totalReturnsSubmitted} return requests logged`}
+                icon={AlertTriangle}
+                color={traceability.summary.activeRecallsCount > 0 ? 'danger' : 'success'}
+              />
+            </div>
+          </>
         )}
 
         {/* Traceability Visual Lineage Tree */}
@@ -146,6 +202,17 @@ const ManagerTraceability = () => {
             icon={Search}
             title="Search Batch Lineage"
             description="Enter a product Batch Number above to trace its end-to-end supply chain path."
+          />
+        )}
+
+        {/* Batch QR Code Modal */}
+        {traceability && (
+          <BatchQRCodeModal
+            isOpen={showQrModal}
+            onClose={() => setShowQrModal(false)}
+            batchNo={traceability.batchNo}
+            productName={traceability.product.name}
+            managerName={traceability.manager.name}
           />
         )}
       </div>

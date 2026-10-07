@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShoppingCart, Eye, RotateCcw, Store, Package, ShieldCheck } from 'lucide-react';
+import { ShoppingCart, Eye, RotateCcw, Store, ShieldCheck, Star } from 'lucide-react';
 import Badge from './ui/Badge';
 
 const ProductFlipCard = ({ item, onBuyClick }) => {
@@ -7,6 +7,9 @@ const ProductFlipCard = ({ item, onBuyClick }) => {
 
   const product = item.productId || {};
   const shop = item.shopId || {};
+
+  const avgRating = product.averageRating || item.averageRating || 0;
+  const numReviews = product.numReviews || item.numReviews || 0;
 
   return (
     <div className={`flip-card-container ${isFlipped ? 'is-flipped' : ''}`}>
@@ -21,7 +24,7 @@ const ProductFlipCard = ({ item, onBuyClick }) => {
               height: '160px',
               borderRadius: 'var(--radius-sm)',
               overflow: 'hidden',
-              marginBottom: '1rem',
+              marginBottom: '0.85rem',
               backgroundColor: '#EFF6FF',
               border: '1px solid var(--border-color)'
             }}>
@@ -35,19 +38,38 @@ const ProductFlipCard = ({ item, onBuyClick }) => {
               </div>
             </div>
 
-            <h4 style={{
-              fontSize: '1.05rem',
-              fontWeight: 800,
-              color: 'var(--text-main)',
-              marginBottom: '0.35rem',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}>
-              {product.name || 'Product Item'}
-            </h4>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+              <h4 style={{
+                fontSize: '1.05rem',
+                fontWeight: 800,
+                color: 'var(--text-main)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: '70%'
+              }}>
+                {product.name || 'Product Item'}
+              </h4>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
+              {/* Star Rating Badge */}
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                backgroundColor: '#FEF3C7',
+                color: '#D97706',
+                padding: '0.15rem 0.45rem',
+                borderRadius: '6px',
+                fontSize: '0.75rem',
+                fontWeight: 700
+              }}>
+                <Star size={13} fill="#D97706" color="#D97706" />
+                <span>{avgRating > 0 ? avgRating : 'New'}</span>
+                {numReviews > 0 && <span style={{ color: '#92400E', fontWeight: 500 }}>({numReviews})</span>}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.4rem', marginBottom: '0.75rem' }}>
               <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.01em' }}>
                 ${item.unitPrice || product.price}
               </span>
@@ -103,27 +125,44 @@ const ProductFlipCard = ({ item, onBuyClick }) => {
               </button>
             </div>
 
-            <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '0.6rem' }}>
+            <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '0.4rem' }}>
               {product.name}
             </h4>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginBottom: '1rem', fontSize: '0.825rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#F8FAFC', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.6rem' }}>
+              {[1, 2, 3, 4, 5].map((s) => (
+                <Star
+                  key={s}
+                  size={14}
+                  fill={s <= Math.round(avgRating) ? '#F59E0B' : 'none'}
+                  color={s <= Math.round(avgRating) ? '#F59E0B' : '#CBD5E1'}
+                />
+              ))}
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', marginLeft: '0.2rem' }}>
+                {avgRating > 0 ? `${avgRating} / 5` : 'No reviews yet'}
+              </span>
+              {numReviews > 0 && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({numReviews} reviews)</span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '1rem', fontSize: '0.825rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#F8FAFC', padding: '0.35rem 0.6rem', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
                 <span style={{ color: 'var(--text-sub)' }}>Price per unit:</span>
                 <strong style={{ color: 'var(--text-main)' }}>${item.unitPrice || product.price}</strong>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#EFF6FF', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #DBEAFE' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#EFF6FF', padding: '0.35rem 0.6rem', borderRadius: '6px', border: '1px solid #DBEAFE' }}>
                 <span style={{ color: 'var(--primary-blue)', fontWeight: 600 }}>Batch Code:</span>
                 <strong style={{ color: '#0369A1', fontFamily: 'var(--font-mono)' }}>{item.batchNo}</strong>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#F8FAFC', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#F8FAFC', padding: '0.35rem 0.6rem', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
                 <span style={{ color: 'var(--text-sub)' }}>Shop Stock:</span>
                 <strong style={{ color: 'var(--success-color)' }}>{item.availableQuantity} available</strong>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#F8FAFC', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#F8FAFC', padding: '0.35rem 0.6rem', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
                 <span style={{ color: 'var(--text-sub)' }}>Selling Shop:</span>
                 <strong style={{ color: 'var(--text-main)' }}>{shop.name}</strong>
               </div>

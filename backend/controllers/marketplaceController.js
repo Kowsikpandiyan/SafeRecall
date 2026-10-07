@@ -1,4 +1,5 @@
 const ShopInventory = require('../models/ShopInventory');
+const User = require('../models/User');
 
 // @desc    Get products available in Shop inventories for Customer Marketplace
 // @route   GET /api/marketplace/products
@@ -37,10 +38,16 @@ const getMarketplaceProducts = async (req, res) => {
       items = items.filter((item) => item.unitPrice <= Number(maxPrice));
     }
 
+    // Fetch all registered shop profiles so filter options always have all shops
+    const allShops = await User.find({
+      role: { $in: ['Shop', 'shop'] }
+    }).select('name email phone address createdAt');
+
     return res.status(200).json({
       success: true,
       count: items.length,
-      marketplaceItems: items
+      marketplaceItems: items,
+      allShops
     });
   } catch (error) {
     console.error('[Marketplace Error]:', error);
@@ -52,6 +59,32 @@ const getMarketplaceProducts = async (req, res) => {
   }
 };
 
-module.exports = {
-  getMarketplaceProducts
+// @desc    Get all registered shops (profiles)
+// @route   GET /api/marketplace/shops
+// @access  Public / Private
+const getMarketplaceShops = async (req, res) => {
+  try {
+    const shops = await User.find({
+      role: { $in: ['Shop', 'shop'] }
+    }).select('name email phone address createdAt');
+
+    return res.status(200).json({
+      success: true,
+      count: shops.length,
+      shops
+    });
+  } catch (error) {
+    console.error('[Marketplace Shops Error]:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch registered shops',
+      error: error.message
+    });
+  }
 };
+
+module.exports = {
+  getMarketplaceProducts,
+  getMarketplaceShops
+};
+

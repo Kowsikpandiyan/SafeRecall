@@ -4,10 +4,11 @@ const ShopInventory = require('../models/ShopInventory');
 const Order = require('../models/Order');
 const Recall = require('../models/Recall');
 const ReturnRequest = require('../models/ReturnRequest');
+const Review = require('../models/Review');
 
 // @desc    Search and build full multi-tier batch traceability
 // @route   GET /api/traceability/:batchNo
-// @access  Private (Manager, Shop, Customer)
+// @access  Private (Manager, Shop, Customer) / Public
 const getBatchTraceability = async (req, res) => {
   try {
     const batchNo = req.params.batchNo.trim().toUpperCase();
@@ -45,6 +46,12 @@ const getBatchTraceability = async (req, res) => {
       .populate('shopId', 'name email')
       .sort({ createdAt: -1 });
 
+    // 6. Product Reviews for this batch
+    const reviews = await Review.find({ batchNo })
+      .populate('customerId', 'name')
+      .populate('shopId', 'name')
+      .sort({ createdAt: -1 });
+
     // Grouping Customers under their respective purchase Shops
     const shopsMap = {};
 
@@ -69,6 +76,7 @@ const getBatchTraceability = async (req, res) => {
       if (shopsMap[sId]) {
         shopsMap[sId].customerOrders.push({
           orderId: ord.orderId,
+          id: ord._id,
           customerId: ord.customerId?._id,
           customerName: ord.customerId?.name || 'Customer Member',
           customerEmail: ord.customerId?.email || '',
@@ -86,6 +94,9 @@ const getBatchTraceability = async (req, res) => {
     const totalReturnsSubmitted = returnRequests.length;
     const totalReturnsCompleted = returnRequests.filter((r) => r.status === 'RECEIVED_BY_MANAGER').length;
 
+    const totalRatingSum = reviews.reduce((sum, r) => sum + r.rating, 0);
+    const averageRating = reviews.length > 0 ? Math.round((totalRatingSum / reviews.length) * 10) / 10 : product.averageRating || 0;
+
     return res.status(200).json({
       success: true,
       traceability: {
@@ -98,6 +109,8 @@ const getBatchTraceability = async (req, res) => {
           price: product.price,
           totalQuantity: product.totalQuantity,
           availableQuantity: product.availableQuantity,
+          averageRating,
+          numReviews: reviews.length || product.numReviews || 0,
           createdAt: product.createdAt
         },
         manager: {
@@ -115,11 +128,14 @@ const getBatchTraceability = async (req, res) => {
           uniqueCustomersCount: customerOrders.length,
           activeRecallsCount: recalls.filter((r) => r.status === 'ACTIVE').length,
           totalReturnsSubmitted,
-          totalReturnsCompleted
+          totalReturnsCompleted,
+          averageRating,
+          numReviews: reviews.length
         },
         shops: Object.values(shopsMap),
         recalls,
-        returns: returnRequests
+        returns: returnRequests,
+        reviews
       }
     });
   } catch (error) {

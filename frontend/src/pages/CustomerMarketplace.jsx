@@ -24,7 +24,75 @@ const CustomerMarketplace = () => {
   // Purchase Modal state
   const [selectedItem, setSelectedItem] = useState(null);
   const [buyQuantity, setBuyQuantity] = useState(1);
+  const [customerPhone, setCustomerPhone] = useState('');
   const [purchasing, setPurchasing] = useState(false);
+
+  // Fetch all registered shops (persists across filters/searches)
+  const fetchShops = async () => {
+    try {
+      // 1. Try dedicated endpoint first
+      const res = await API.get('/marketplace/shops');
+      if (res.data.success && Array.isArray(res.data.shops)) {
+        setShops((prev) => {
+          const shopMap = new Map();
+          res.data.shops.forEach((s) => {
+            const idStr = (s._id || s.id).toString();
+            shopMap.set(idStr, {
+              id: idStr,
+              name: s.name,
+              email: s.email
+            });
+          });
+          prev.forEach((s) => {
+            if (!shopMap.has(s.id)) {
+              shopMap.set(s.id, s);
+            }
+          });
+          return Array.from(shopMap.values());
+        });
+        return;
+      }
+    } catch (e) {
+      // Endpoint might not be loaded if server hasn't restarted yet
+    }
+
+    try {
+      // 2. Fallback: Query all products without filter to discover all active shops
+      const res = await API.get('/marketplace/products');
+      if (res.data.success) {
+        const shopMap = new Map();
+        if (Array.isArray(res.data.allShops)) {
+          res.data.allShops.forEach((s) => {
+            if (s._id) {
+              const idStr = s._id.toString();
+              shopMap.set(idStr, { id: idStr, name: s.name, email: s.email });
+            }
+          });
+        }
+        if (Array.isArray(res.data.marketplaceItems)) {
+          res.data.marketplaceItems.forEach((it) => {
+            if (it.shopId && it.shopId._id) {
+              const idStr = it.shopId._id.toString();
+              if (!shopMap.has(idStr)) {
+                shopMap.set(idStr, {
+                  id: idStr,
+                  name: it.shopId.name,
+                  email: it.shopId.email
+                });
+              }
+            }
+          });
+        }
+        setShops(Array.from(shopMap.values()));
+      }
+    } catch (err) {
+      console.warn('Initial shops discovery fallback error:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchShops();
+  }, []);
 
   const fetchMarketplace = async () => {
     try {
@@ -38,14 +106,44 @@ const CustomerMarketplace = () => {
       if (res.data.success) {
         setItems(res.data.marketplaceItems);
 
-        // Extract unique shops for dropdown filter
-        const shopMap = {};
-        res.data.marketplaceItems.forEach((it) => {
-          if (it.shopId && it.shopId._id) {
-            shopMap[it.shopId._id] = it.shopId.name;
+        // Safely merge shops without wiping existing shop profiles
+        setShops((prevShops) => {
+          const shopMap = new Map();
+          // Keep all existing registered shops
+          prevShops.forEach((s) => shopMap.set(s.id, s));
+
+          // If backend returned allShops list
+          if (Array.isArray(res.data.allShops)) {
+            res.data.allShops.forEach((s) => {
+              if (s._id) {
+                const idStr = s._id.toString();
+                shopMap.set(idStr, {
+                  id: idStr,
+                  name: s.name,
+                  email: s.email
+                });
+              }
+            });
           }
+
+          // Also merge any shops found in items
+          if (Array.isArray(res.data.marketplaceItems)) {
+            res.data.marketplaceItems.forEach((it) => {
+              if (it.shopId && it.shopId._id) {
+                const idStr = it.shopId._id.toString();
+                if (!shopMap.has(idStr)) {
+                  shopMap.set(idStr, {
+                    id: idStr,
+                    name: it.shopId.name,
+                    email: it.shopId.email
+                  });
+                }
+              }
+            });
+          }
+
+          return Array.from(shopMap.values());
         });
-        setShops(Object.entries(shopMap).map(([id, name]) => ({ id, name })));
       }
     } catch (err) {
       console.error('Marketplace fetch error:', err);
@@ -67,6 +165,7 @@ const CustomerMarketplace = () => {
   const openBuyModal = (item) => {
     setSelectedItem(item);
     setBuyQuantity(1);
+    setCustomerPhone(user?.phone || '');
     setError('');
     setSuccessMsg('');
   };
@@ -84,7 +183,8 @@ const CustomerMarketplace = () => {
       setError('');
       const res = await API.post('/orders', {
         shopInventoryId: selectedItem._id,
-        quantity: Number(buyQuantity)
+        quantity: Number(buyQuantity),
+        phone: customerPhone || user?.phone || ''
       });
 
       if (res.data.success) {
@@ -144,7 +244,7 @@ const CustomerMarketplace = () => {
               />
             </div>
 
-            <div style={{ width: '220px' }}>
+            <div style={{ minWidth: '240px', flex: '0 1 260px' }}>
               <select
                 className="form-select"
                 style={{ height: '46px', fontWeight: 600 }}
@@ -153,7 +253,9 @@ const CustomerMarketplace = () => {
               >
                 <option value="">All Retail Shops</option>
                 {shops.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -188,8 +290,12 @@ const CustomerMarketplace = () => {
         ) : items.length === 0 ? (
           <EmptyState
             icon={ShoppingBag}
-            title="No Marketplace Products Found"
-            description="Register a Manufacturer to add products, then register a Shop to acquire stock into the marketplace catalog."
+            title={selectedShopId ? "No Products in This Shop Inventory" : "No Marketplace Products Found"}
+            description={
+              selectedShopId
+                ? "This retail shop currently has no products in stock. Select another shop or browse 'All Retail Shops'."
+                : "Register a Manufacturer to add products, then register a Shop to acquire stock into the marketplace catalog."
+            }
           />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.75rem' }}>
@@ -241,6 +347,20 @@ const CustomerMarketplace = () => {
                 />
                 <span className="form-helper">
                   Available stock at shop: {selectedItem.availableQuantity} units
+                </span>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="form-label">Contact Mobile Number</label>
+                <input
+                  type="tel"
+                  className="form-input"
+                  placeholder="e.g. 9876543210 or +91 9876543210"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                />
+                <span className="form-helper">
+                  Contact number for order receipts and notifications.
                 </span>
               </div>
 

@@ -42,6 +42,18 @@ const productSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
       index: true
+    },
+    averageRating: {
+      type: Number,
+      default: 0
+    },
+    numReviews: {
+      type: Number,
+      default: 0
+    },
+    warrantyMonths: {
+      type: Number,
+      default: 12
     }
   },
   {
